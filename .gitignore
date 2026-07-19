@@ -1,0 +1,14 @@
+# --- Secrets & local configuration (never commit) ---
+.env
+ssl/
+
+# --- Crash dumps / junk ---
+*.stackdump
+
+# --- OS / editor cruft ---
+.DS_Store
+Thumbs.db
+*~
+*.swp
+.idea/
+.vscode/

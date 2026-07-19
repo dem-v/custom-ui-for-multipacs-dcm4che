@@ -1,0 +1,65 @@
+# xrayservice — latest OHIF viewer in front of 4 dcm4chee PACS.
+#
+#   ohif    : our image, built FROM ohif/app:latest with app-config.js baked in.
+#   proxy   : nginx that serves OHIF and reverse-proxies each PACS DICOMweb port,
+#             adding CORS. This is the single origin the browser talks to, over
+#             both the LAN and the Cloudflare tunnel.
+#
+# Configure everything in .env (PACS host/scheme/ports, published HTTP port).
+
+services:
+  ohif:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        OHIF_TAG: ${OHIF_TAG:-latest-beta}
+    image: xrayservice/ohif:latest
+    container_name: xrayservice-ohif
+    restart: unless-stopped
+    expose:
+      - "80"
+    networks:
+      - xrayservice
+
+  proxy:
+    image: nginx:1.27-alpine
+    container_name: xrayservice-proxy
+    restart: unless-stopped
+    depends_on:
+      - ohif
+    environment:
+      PACS_HOST: ${PACS_HOST}
+      PACS_SCHEME: ${PACS_SCHEME}
+      PACS_PORT_XRAY: ${PACS_PORT_XRAY}
+      PACS_PORT_CT: ${PACS_PORT_CT}
+      PACS_PORT_ANGIO: ${PACS_PORT_ANGIO}
+      PACS_PORT_US: ${PACS_PORT_US}
+      # Only substitute our own placeholders; keep $host/$scheme/etc. literal.
+      NGINX_ENVSUBST_FILTER: "^PACS_"
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./picker.html:/etc/nginx/picker.html:ro
+    networks:
+      - xrayservice
+
+  # --- OPTIONAL: run the Cloudflare tunnel in-stack instead of on the host ---
+  # Uncomment and paste your tunnel token. cloudflared reaches the proxy by its
+  # service name over the shared network, so the tunnel's public hostname should
+  # point at  http://proxy:80  in the Cloudflare Zero Trust dashboard.
+  #
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   container_name: xrayservice-cloudflared
+  #   restart: unless-stopped
+  #   command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+  #   depends_on:
+  #     - proxy
+  #   networks:
+  #     - xrayservice
+
+networks:
+  xrayservice:
+    driver: bridge

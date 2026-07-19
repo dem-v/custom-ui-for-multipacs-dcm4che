@@ -1,0 +1,88 @@
+# =============================================================================
+# xrayservice reverse proxy
+#
+# Rendered at container start by the official nginx image's envsubst step.
+# NGINX_ENVSUBST_FILTER=^PACS_ means ONLY ${PACS_*} placeholders are substituted;
+# real nginx runtime vars ($host, $scheme, $request_method, ...) are left intact.
+#
+# Responsibilities:
+#   * serve the OHIF SPA at  /                (proxied to the ohif container)
+#   * forward DICOMweb per PACS:
+#         /pacs-xray/   -> ${PACS_SCHEME}://${PACS_HOST}:${PACS_PORT_XRAY}
+#         /pacs-ct/     -> ${PACS_SCHEME}://${PACS_HOST}:${PACS_PORT_CT}
+#         /pacs-angio/  -> ${PACS_SCHEME}://${PACS_HOST}:${PACS_PORT_ANGIO}
+#         /pacs-us/     -> ${PACS_SCHEME}://${PACS_HOST}:${PACS_PORT_US}
+#   * add permissive CORS (no auth => wildcard, no credentials)
+#   * pass Cloudflare / LAN forwarding headers through unchanged
+# =============================================================================
+
+# Trust Cloudflare's X-Forwarded-Proto when present; fall back to the real scheme.
+map $http_x_forwarded_proto $fwd_proto {
+    default $scheme;
+    https   https;
+    http    http;
+}
+
+server {
+    listen 80;
+    server_name _;
+
+    # Large ceiling so WADO-RS / (future) STOW-RS payloads are never truncated.
+    client_max_body_size 0;
+
+    # ---- proxy defaults (inherited by every location below) ----
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_connect_timeout 30s;
+    proxy_send_timeout    300s;
+    proxy_read_timeout    300s;
+
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $fwd_proto;
+    proxy_set_header X-Forwarded-Host  $host;
+
+    # The PACS DICOMweb ports use TLS (8443-8446). These are ignored when
+    # PACS_SCHEME=http, so leaving them on costs nothing. verify=off tolerates
+    # dcm4chee's self-signed / internal-CA certificate.
+    proxy_ssl_verify      off;
+    proxy_ssl_server_name on;
+
+    # ---- "no auth" hedge -------------------------------------------------
+    # You specified no auth. If a PACS still rejects OHIF with HTTP 401/403,
+    # the AET's DICOMweb requires a token. Uncomment and paste one here (it is
+    # inherited by all /pacs-* locations). NOTE: Keycloak tokens expire — prefer
+    # opening the AETs to unauthenticated read, or use a long-lived token.
+    # proxy_set_header Authorization "Bearer PASTE_TOKEN_HERE";
+
+    # ---- CORS (inherited by all locations; wildcard, NO credentials) -----
+    add_header Access-Control-Allow-Origin  '*' always;
+    add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS' always;
+    add_header Access-Control-Allow-Headers 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Accept,Authorization' always;
+    add_header Access-Control-Expose-Headers 'Content-Length,Content-Range,Content-Type,Content-Location,Location,Warning,ETag' always;
+    add_header Access-Control-Max-Age 1728000 always;
+
+    # ===================== DICOMweb: one PACS per port =====================
+    # The trailing "/" on proxy_pass strips the /pacs-*/ prefix, so
+    #   /pacs-xray/dcm4chee-arc/aets/XRAYPACS/rs/studies
+    # is forwarded to the PACS as
+    #   /dcm4chee-arc/aets/XRAYPACS/rs/studies
+    location /pacs-xray/  { if ($request_method = OPTIONS) { return 204; } proxy_pass ${PACS_SCHEME}://${PACS_HOST}:${PACS_PORT_XRAY}/;  }
+    location /pacs-ct/    { if ($request_method = OPTIONS) { return 204; } proxy_pass ${PACS_SCHEME}://${PACS_HOST}:${PACS_PORT_CT}/;    }
+    location /pacs-angio/ { if ($request_method = OPTIONS) { return 204; } proxy_pass ${PACS_SCHEME}://${PACS_HOST}:${PACS_PORT_ANGIO}/; }
+    location /pacs-us/    { if ($request_method = OPTIONS) { return 204; } proxy_pass ${PACS_SCHEME}://${PACS_HOST}:${PACS_PORT_US}/;   }
+
+    # ===================== Source picker landing page ======================
+    # Static page (served directly by this proxy, not OHIF). Open /pacs to pick
+    # a PACS; its links jump into OHIF at /?dataSources=<sourceName>&sortBy=...
+    location = /pacs {
+        alias /etc/nginx/picker.html;
+        default_type text/html;
+    }
+
+    # ============================ OHIF SPA =================================
+    location / {
+        proxy_pass http://ohif:80;
+    }
+}

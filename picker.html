@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PACS — choose a source</title>
+<style>
+  :root {
+    --bg: #0b1020; --card: #151b2e; --card-hover: #1c2440; --border: #263156;
+    --fg: #eaf0ff; --muted: #93a0c4; --accent: #4f8cff; --pill: #223056;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f6fb; --card: #ffffff; --card-hover: #f0f4ff; --border: #d9e0f0;
+      --fg: #131a2b; --muted: #5a688c; --accent: #2f6bff; --pill: #e7edfb;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--fg);
+    font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    display: flex; flex-direction: column; align-items: center; padding: 6vh 20px;
+  }
+  header { text-align: center; margin-bottom: 28px; }
+  h1 { font-size: 1.6rem; margin: 0 0 6px; letter-spacing: .3px; }
+  header p { margin: 0; color: var(--muted); }
+  header .date { color: var(--accent); font-weight: 600; }
+  .grid {
+    display: grid; gap: 16px; width: 100%; max-width: 760px;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  }
+  .card {
+    display: flex; align-items: center; gap: 16px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 16px 18px; transition: background .15s, transform .15s, border-color .15s;
+  }
+  .card:hover { background: var(--card-hover); transform: translateY(-2px); border-color: var(--accent); }
+  .card > a.main { display: flex; align-items: center; gap: 16px; text-decoration: none; color: var(--fg); flex: 1; min-width: 0; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+  .meta { flex: 1; min-width: 0; }
+  .meta .name { font-weight: 600; font-size: 1.05rem; }
+  .meta .sub { color: var(--muted); font-size: .88rem; }
+  .go { color: var(--accent); font-weight: 600; white-space: nowrap; }
+  a.all {
+    text-decoration: none; color: var(--muted); font-size: .78rem; white-space: nowrap;
+    background: var(--pill); padding: 5px 10px; border-radius: 999px; border: 1px solid var(--border);
+  }
+  a.all:hover { color: var(--accent); border-color: var(--accent); }
+  footer { margin-top: 30px; color: var(--muted); font-size: .82rem; text-align: center; max-width: 640px; }
+  code { background: rgba(127,127,127,.18); padding: 1px 6px; border-radius: 6px; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Select an imaging archive</h1>
+    <p>Opens <span class="date" id="todayLabel"></span> studies, newest first.
+       Use <b>All dates</b> to browse history.</p>
+  </header>
+
+  <div class="grid" id="grid"></div>
+
+  <footer>
+    Bookmark <code>/pacs</code> as the entry point. Each archive is a separate
+    PACS; the viewer stays on the selected source when you open a study.
+  </footer>
+
+<script>
+  // ============================ tunables ==================================
+  // Change these once to affect every archive link.
+  var CFG = {
+    perPage: 500,             // studies per page (dcm4chee may cap server-side)
+    sortBy:  'studyDateTime', // column id (NOT 'studyDate'); also: patientName, mrn, accession
+    sortDir: 'desc',          // desc | asc
+  };
+
+  var SOURCES = [
+    { src: 'xraypacs',  name: 'X-Ray',       sub: 'XRAYPACS · CR / DX',   color: '#4f8cff' },
+    { src: 'ctpacs',    name: 'CT',          sub: 'CTPACS · CT',          color: '#28c17a' },
+    { src: 'angiopacs', name: 'Angiography', sub: 'ANGIOPACS · XA / RF',  color: '#ff8a3d' },
+    { src: 'uspacs',    name: 'Ultrasound',  sub: 'USPACS · US',          color: '#b06bff' },
+  ];
+  // ========================================================================
+
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  // Local browser date. NOTE: a remote viewer in a different timezone than the
+  // clinic (Europe/Kyiv) may see "today" off by one day.
+  function ymd(d) { return '' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()); }
+  var TODAY = ymd(new Date());
+
+  function link(src, todayOnly) {
+    var p = 'dataSources=' + encodeURIComponent(src) +
+            '&sortBy=' + CFG.sortBy + '&sortDirection=' + CFG.sortDir +
+            '&resultsPerPage=' + CFG.perPage;
+    if (todayOnly) { p += '&startDate=' + TODAY + '&endDate=' + TODAY; }
+    return '/?' + p;
+  }
+
+  document.getElementById('todayLabel').textContent =
+    "today's (" + TODAY.slice(0, 4) + '-' + TODAY.slice(4, 6) + '-' + TODAY.slice(6, 8) + ')';
+
+  var grid = document.getElementById('grid');
+  SOURCES.forEach(function (s) {
+    var card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML =
+      '<a class="main" href="' + link(s.src, true) + '">' +
+        '<span class="dot" style="background:' + s.color + '"></span>' +
+        '<span class="meta"><span class="name">' + s.name + '</span><br>' +
+        '<span class="sub">' + s.sub + '</span></span>' +
+        '<span class="go">Today &rsaquo;</span>' +
+      '</a>' +
+      '<a class="all" href="' + link(s.src, false) + '">All dates</a>';
+    grid.appendChild(card);
+  });
+</script>
+</body>
+</html>
