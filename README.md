@@ -1,4 +1,4 @@
-# xrayservice — OHIF viewer for the 4-PACS dcm4chee cluster
+# OHIF viewer for the 4-PACS dcm4chee cluster
 
 Builds the **latest OHIF viewer** (`ohif/app:latest-beta` by default, v3.13 line;
 flip to `latest` stable via `OHIF_TAG` in `.env`) and puts an nginx reverse proxy
@@ -36,7 +36,7 @@ DIMSE ports 11112–11115 are for C-STORE/C-FIND and are **not** used by the vie
 Requires Docker Desktop **running** (only the compose CLI is present otherwise).
 
 ```bash
-cd ohif_to_xrayservice
+cd custom-ui-for-multipacs-dcm4che 
 cp .env.example .env              # then edit .env — set PACS_HOST, scheme, ports
 docker compose up -d --build      # pulls latest OHIF, builds our image, starts nginx
 ```
